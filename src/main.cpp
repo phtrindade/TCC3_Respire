@@ -77,8 +77,6 @@ void setup()
   int adcRange = 2048;       // Options: 2048, 4096, 8192, 16384
 
   particleSensor.setup(ledBrightness, sampleAverage, ledMode, sampleRate, pulseWidth, adcRange); // Configure sensor with these settings
-  // particleSensor.setPulseAmplitudeRed(0x0A); //Turn Red LED to low to indicate sensor is running
-  // particleSensor.setPulseAmplitudeGreen(0); //Turn off Green LED
 
   xTaskCreatePinnedToCore(mqtt_task, "MQTT_TASK", 2048, NULL, 1, NULL, 1);
 }
@@ -127,7 +125,7 @@ void loop()
 
   if (irValue < 50000)
 
-    Serial.println("sem dedo ");
+    Serial.println("*** Sem dedo *** ");
 
   while (particleSensor.available())
   {                                   // do we have new data
@@ -152,15 +150,10 @@ void loop()
       break;
     }
     particleSensor.nextSample(); // We're finished with this sample so move to next sample
-    // Serial.print(", ESpO2->");
-    // Serial.print(ESpO2);
-    // Serial.print(", SpO2->");
-    // Serial.println(SpO2);
-
-    //----------------TEMPO DE AMOSTRA
+   
+   
   }
-  // xQueueSend(fila, &dados, portMAX_DELAY);
-
+  
   mqtt_dados_t dados;
   dados.bpm = beatAvg;
   dados.espo2 = SpO2;
@@ -185,10 +178,7 @@ bool mqttInit()
     // Serial.println("Establishing connection to WiFi..");
   }
 
-  // Exibe no monitor serial
-  // Serial.println("Connected to network");
-
-  // Seta servidor com o broker e a porta
+   // Seta servidor com o broker e a porta
   client.setServer(SERVER, PORT);
 
   // Conecta no ubidots com o Device id e o token, o password é informado como vazio
@@ -214,7 +204,7 @@ void reconnect()
   {
     client.setServer(SERVER, PORT);
     client.connect(DEVICE_ID, TOKEN, "");
-    Serial.println("*******Conectando*******");
+    Serial.println("******* Conectando *******");
     delay(2000);
   }
 }
