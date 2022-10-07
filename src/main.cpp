@@ -3,6 +3,8 @@
 #include <WiFi.h>
 #include <PubSubClient.h> //Biblioteca para as publicações via mqtt
 #include "MQTT_Client.h"  //Arquivo com as funções de mqtt
+#include <threewire.h>  
+#include <RtcDS1302.h>
 #include "MAX30105.h"
 #include "heartRate.h"
 //------------------------------------Definições de rede-----------------------------
@@ -17,11 +19,14 @@
 
 // Tópico aonde serão feitos os publish, "esp32-dht" é o DEVICE_LABEL
 #define TOPIC "/v1.6/devices/CPAP_RESPIRE"
+int CLK = 5, RST = 12, DAT = 14;
 
 WiFiClient ubidots;           // Objeto WiFiClient usado para a conexão wifi
 PubSubClient client(ubidots); // Objeto PubSubClient usado para publish–subscribe
 WiFiServer sv(80);
 MAX30105 particleSensor;
+ThreeWire myWire(DAT,CLK,RST); // IO, SCLK, CE
+RtcDS1302<ThreeWire> Rtc(myWire);
 QueueHandle_t fila;
 
 struct
@@ -42,21 +47,71 @@ byte rateSpot = 0;
 long lastBeat = 0; // Time at which the last beat occurred
 float beatsPerMinute;
 double beatAvg;
+/* ------------------------------- RTC 1302 -------------------------------------------
+CLK/SCLK --> D5 - IO27
+DAT/IO   --> D4 - IO12
+RST/CE   --> D2 - IO14
+VCC      --> 3,3v 
+GND      --> GND*/
+
 //------------------------Funções--------------------------------------------------
 void reconnect();
 bool mqttInit();
 bool sendValues(double bpm, double espo2);
 void mqtt_task(void *pvt);
+void printDateTime(const RtcDateTime& dt);
 
 //---------------------------------SETUP------------------------------------------------
 void setup()
 {
   Serial.begin(9600);
+  //--------------------------------- RTC 1302 ------------------------------------------------------------
+    Serial.print(" compiled: ");
+    Serial.println(__DATE__);
+    Serial.println(__TIME__);
+    Rtc.Begin();
+    RtcDateTime compiled = RtcDateTime(__DATE__, __TIME__);
+    printDateTime(compiled);
+    Serial.println();
+    if (!Rtc.IsDateTimeValid()) 
+    {
+        Serial.println("RTC perdeu a confiança no DateTime!");
+        Rtc.SetDateTime(compiled);
+    }
+
+    if (Rtc.GetIsWriteProtected())
+    {
+        Serial.println("RTC foi protegido contra gravação, permitindo a gravação agora");
+        Rtc.SetIsWriteProtected(false);
+    }
+
+    if (!Rtc.GetIsRunning())
+    {
+        Serial.println("O RTC não estava funcionando ativamente, começando agora");
+        Rtc.SetIsRunning(true);
+    }
+
+    RtcDateTime now = Rtc.GetDateTime();
+    if (now < compiled) 
+    {
+        Serial.println("O RTC é mais antigo que o tempo de compilação! (Atualizando DateTime)");
+        Rtc.SetDateTime(compiled);
+    }
+    else if (now > compiled) 
+    {
+        Serial.println("RTC is newer than compile time. (this is expected)");
+    }
+    else if (now == compiled) 
+    {
+        Serial.println("RTC is the same as compile time! (not expected but all is fine)");
+    }
+    
+  //-------------------------------------------------------------------------------------------------------
   Serial.println("Initializing...");
 
   //---------------------------------------- Configurando AP------------------------------------------------
 
-  //-------------------------------------------------------------------------------------------------------
+  //--------------------------------------------------------------------------------------------------------
 
   fila = xQueueCreate(10, sizeof(mqtt_dados_t));
 
@@ -100,6 +155,9 @@ double frate = 0.95; // low pass filter for IR/red LED value to eliminate AC com
 
 void loop()
 {
+  RtcDateTime now = Rtc.GetDateTime();
+  printDateTime(now);
+  Serial.println();
   long irValue = particleSensor.getIR();
 
   // Checa batimento
@@ -150,8 +208,8 @@ void loop()
       break;
     }
     particleSensor.nextSample(); // We're finished with this sample so move to next sample
-   
-   
+  
+  
   }
   
   mqtt_dados_t dados;
@@ -191,7 +249,22 @@ bool mqttInit()
   // Serial.println("MQTT - Connect ok");
   return true;
 }
+#define countof(a) (sizeof(a) / sizeof(a[0]))
+void printDateTime(const RtcDateTime& dt)
+{
+    char datestring[20];
 
+    snprintf_P(datestring, 
+            countof(datestring),
+            PSTR("%02u/%02u/%04u %02u:%02u:%02u"),
+            dt.Month(),
+            dt.Day(),
+            dt.Year(),
+            dt.Hour(),
+            dt.Minute(),
+            dt.Second() );
+    Serial.print(datestring);
+}
 void reconnect()
 {
 
@@ -317,3 +390,4 @@ void geraAP()
     client.stop(); // Para o cliente
   }
 }
+
