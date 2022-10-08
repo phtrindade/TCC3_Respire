@@ -7,12 +7,19 @@
 #include <RtcDS1302.h>
 #include "MAX30105.h"
 #include "heartRate.h"
+
 //------------------------------------Definições de rede-----------------------------
 #define WIFISSID "trator"                                    // Coloque seu SSID de WiFi aqui
 #define PASSWORD "Pauloh01"                                  // Coloque seu password de WiFi aqui
 #define TOKEN "BBFF-rX9QpMCCnyo6oNUW0xErfP0e7ixvjJ"          // Coloque seu TOKEN do Ubidots aqui
 #define variable_label_spo2 "Saturação de Oxigenio"          // Label referente a variável de temperatura criada no ubidots
 #define VARIABLE_LABEL_HEAT_RATE "Frequencia Cardiaca"       // Label referente a variável de umidade criada no ubidots
+#define variable_dia       "Dia"
+#define variable_mes       "Mês"
+#define variable_ano       "Ano"
+#define variable_hora      "Hora"
+#define variable_minuto    "Minuto"
+#define variable_segundos  "Segundos"
 #define DEVICE_ID "BBFF-fc2c3213408ddcd65448b2fc1996251f155" // ID do dispositivo (Device id, também chamado de client name)
 #define SERVER "things.ubidots.com"                          // Servidor do Ubidots (broker)
 #define PORT 1883                                            // Porta padrão
@@ -33,7 +40,13 @@ struct
 {
   double bpm;
   double espo2;
-} typedef mqtt_dados_t;
+  double hora;
+  double minuto;
+  double segundos;
+  double dia;
+  double mes;
+  double ano;
+  } typedef mqtt_dados_t;
 
 #define TIMETOBOOT 3000 // wait for this time(msec) to output SpO2
 #define SCALE 93.0      // 88.0      //adjust to display heart beat and SpO2 in the same scale
@@ -71,8 +84,9 @@ void setup()
     Serial.println(__TIME__);
     Rtc.Begin();
     RtcDateTime compiled = RtcDateTime(__DATE__, __TIME__);
-    printDateTime(compiled);
-    Serial.println();
+    printDateTime(compiled); 
+    //compiled.Hour();
+    
     if (!Rtc.IsDateTimeValid()) 
     {
         Serial.println("RTC perdeu a confiança no DateTime!");
@@ -113,7 +127,7 @@ void setup()
 
   //--------------------------------------------------------------------------------------------------------
 
-  fila = xQueueCreate(10, sizeof(mqtt_dados_t));
+  fila = xQueueCreate(40, sizeof(mqtt_dados_t));
 
   // Initialize sensor
   if (!particleSensor.begin(Wire, I2C_SPEED_FAST))
@@ -137,7 +151,7 @@ void setup()
 }
 //------------------------------------------------------------------------------------
 int tempo_envio = 0;
-int y = 30;
+//char y   
 uint32_t ir, red;
 float red_forGraph = 0.0;
 float ir_forGraph = 0.0;
@@ -156,8 +170,7 @@ double frate = 0.95; // low pass filter for IR/red LED value to eliminate AC com
 void loop()
 {
   RtcDateTime now = Rtc.GetDateTime();
-  printDateTime(now);
-  Serial.println();
+    
   long irValue = particleSensor.getIR();
 
   // Checa batimento
@@ -213,9 +226,16 @@ void loop()
   }
   
   mqtt_dados_t dados;
-  dados.bpm = beatAvg;
-  dados.espo2 = SpO2;
-  tempo_envio += 50;
+  dados.dia      = now.Day();
+  dados.mes      = now.Month();
+  dados.ano      = now.Year();
+  dados.hora     = now.Hour();
+  dados.minuto   = now.Minute();
+  dados.segundos = now.Second(); 
+  dados.bpm      = beatAvg;
+  dados.espo2    = SpO2;
+  tempo_envio    += 50;
+  
   if (tempo_envio == 5000)
   {
     tempo_envio = 0;
@@ -254,9 +274,7 @@ void printDateTime(const RtcDateTime& dt)
 {
     char datestring[20];
 
-    snprintf_P(datestring, 
-            countof(datestring),
-            PSTR("%02u/%02u/%04u %02u:%02u:%02u"),
+    snprintf_P(datestring,countof(datestring),PSTR("%02u/%02u/%04u %02u:%02u:%02u"),
             dt.Month(),
             dt.Day(),
             dt.Year(),
@@ -282,12 +300,23 @@ void reconnect()
   }
 }
 
-bool sendValues(double bpm, double espo2)
-{
+bool sendValues(double bpm, double espo2,double mes){ //, double mes
   char json[250];
 
+ // // Atribui para a cadeia de caracteres "json" os valores referentes a temperatura e os envia para a variável do ubidots correspondente
+ // sprintf(json, "{\"%s\":{\"value\":%02.f}}", variable_dia, mes);
+ // Serial.printf("%s\n", json);
+ // if (!client.publish(TOPIC, json))
+ //   return false;
+ // 
+ // // Atribui para a cadeia de caracteres "json" os valores referentes a temperatura e os envia para a variável do ubidots correspondente
+ // sprintf(json, "{\"%s\":{\"value\":%02.f}}", variable_dia, ano);
+ // Serial.printf("%s\n", json);
+ // if (!client.publish(TOPIC, json))
+ //   return false;
+
   // Atribui para a cadeia de caracteres "json" os valores referentes a temperatura e os envia para a variável do ubidots correspondente
-  sprintf(json, "{\"%s\":{\"value\":%02.02f}}", variable_label_spo2, espo2);
+  sprintf(json, "{\"%s\":{\"value\":%02.02f//%02.02f}}", variable_label_spo2, espo2,mes);
   Serial.printf("%s\n", json);
   if (!client.publish(TOPIC, json))
     return false;
@@ -314,7 +343,7 @@ void mqtt_task(void *pvt)
     reconnect();
     while (xQueueReceive(fila, &dados, 100 * portTICK_PERIOD_MS))
     {
-      sendValues(dados.bpm, dados.espo2);
+      sendValues(dados.bpm, dados.espo2, dados.mes); //, dados.mes, dados.ano
     }
   }
 }
