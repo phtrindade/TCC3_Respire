@@ -25,6 +25,7 @@
 #define DEVICE_ID                "BBFF-fc2c3213408ddcd65448b2fc1996251f155"    // ID do dispositivo (Device id, também chamado de client name)
 #define SERVER                   "things.ubidots.com"                          // Servidor do Ubidots (broker)
 #define PORT 1883                                            // Porta padrão
+#define ARQUIVO                  "/Batimentos.csv"
 
 // Tópico aonde serão feitos os publish, "esp32-dht" é o DEVICE_LABEL
 #define TOPIC "/v1.6/devices/CPAP_RESPIRE"
@@ -62,6 +63,7 @@ byte rateSpot         = 0;
 long lastBeat         = 0;            // Time at which the last beat occurred
 float beatsPerMinute;
 float beatAvg;
+//String batimentos.txt;
 /* ------------------------------- RTC 1302 -------------------------------------------
 CLK/SCLK --> D5 - IO05
 DAT/IO   --> D4 - IO12
@@ -75,11 +77,51 @@ bool mqttInit();
 bool sendValues(float bpm, float espo2);
 void mqtt_task(void *pvt);
 void printDateTime(const RtcDateTime& dt);
-
+bool listDir() {
+  File root = SPIFFS.open("/"); // Abre o "diretório" onde estão os arquivos na SPIFFS
+  //                                e passa o retorno para
+  //                                uma variável do tipo File.
+  if (!root) // Se houver falha ao abrir o "diretório", ...
+  {
+    // informa ao usuário que houve falhas e sai da função retornando false.
+    Serial.println(" - falha ao abrir o diretório");
+    return false;
+  }
+  File file = root.openNextFile(); // Relata o próximo arquivo do "diretório" e
+  //                                    passa o retorno para a variável
+  //                                    do tipo File.
+  int qtdFiles = 0; // variável que armazena a quantidade de arquivos que
+  //                    há no diretório informado.
+  while (file) { // Enquanto houver arquivos no "diretório" que não foram vistos,
+    //                executa o laço de repetição.
+    Serial.print("  FILE : ");
+    Serial.print(file.name()); // Imprime o nome do arquivo
+    Serial.print("\tSIZE : ");
+    Serial.println(file.size()); // Imprime o tamanho do arquivo
+    qtdFiles++; // Incrementa a variável de quantidade de arquivos
+    file = root.openNextFile(); // Relata o próximo arquivo do diretório e
+    //                              passa o retorno para a variável
+    //                              do tipo File.
+  }
+  if (qtdFiles == 0)  // Se após a visualização de todos os arquivos do diretório
+    //                      não houver algum arquivo, ...
+  {
+    // Avisa o usuário que não houve nenhum arquivo para ler e retorna false.
+    Serial.print(" - Sem arquivos para ler. Crie novos arquivos pelo menu ");
+    Serial.println("principal, opção 2.");
+    return false;
+  }
+  return true; // retorna true se não houver nenhum erro
+}
+void readFile(void);
 //---------------------------------SETUP------------------------------------------------
 void setup()
 {
   Serial.begin(9600);
+  //--------------------------------- LittleFS ------------------------------------------------------------
+  SPIFFS.begin();
+  Serial.println();
+    
   //--------------------------------- RTC 1302 ------------------------------------------------------------
     Serial.print(" compiled: ");
     Serial.println(__DATE__);
@@ -242,8 +284,9 @@ void loop()
   {
     tempo_envio = 0;
     xQueueSend(fila, &dados, portMAX_DELAY);
+  
   }
-
+  
   delay(50);
 }
 bool mqttInit()
@@ -285,6 +328,7 @@ void printDateTime(const RtcDateTime& dt)
             dt.Second() );
     Serial.print(datestring);
 }
+
 void reconnect()
 {
 
@@ -305,10 +349,52 @@ void reconnect()
 bool sendValues(float bpm, float espo2, int dia,int mes,int ano,int hora, int minuto,int segundo){ //, float mes
   char json[250];
  // Atribui para a cadeia de caracteres "json" os valores referentes a temperatura e os envia para a variável do ubidots correspondente
-  sprintf(json, "{\"%s\":{\"value\":%02.02f ; %02d/%02d/%02d ; %02d:%02d:%02d}}", VARIABLE_TEXT, espo2,dia,mes,ano,hora,minuto,segundo);
+  sprintf(json, "%02.02f; %02.02f ; %02d/%02d/%02d ; %02d:%02d:%02d\n", bpm, espo2,dia,mes,ano,hora,minuto,segundo);
   Serial.printf("%s\n", json);
-  if (!client.publish(TOPIC, json))
-    return false;
+    
+      if(SPIFFS.exists(ARQUIVO)){
+        Serial.println("Arquivo ja existe!");
+        } else { 
+          Serial.print("Gravando o arquivo ");
+          Serial.println(" : ");
+          File file = SPIFFS.open(ARQUIVO, "w"); // Abre o arquivo, no modo escrita,
+
+          if (!file) // Se houver falha ao abrir o caminho, ...
+          {
+          // informa ao usuário que houve falhas e sai da função retornando false.
+            Serial.println(" falha ao abrir arquivo para gravação");
+          }
+          if (file.print(json)) // Se a escrita do arquivo com seu conteúdo der certo, ...
+          {
+            // informa ao usuário que deu certo
+            Serial.println(" <<< arquivo escrito >>>");
+          } else {
+            // informa ao usuário que deu erros e sai da função retornando false.
+            Serial.println("<<<< falha na ESCRITA do arquivo >>>>");
+            }  
+      Serial.println("-------ARQUIVO CRIADO COM SUCESSO----------------");
+      file.close(); 
+        }
+      Serial.println(" Inserindo novo registro : ");
+          
+          File file = SPIFFS.open(ARQUIVO, "a"); // Abre o arquivo, no modo escrita,
+
+          if (!file) // Se houver falha ao abrir o caminho, ...
+          {
+          // informa ao usuário que houve falhas e sai da função retornando false.
+            Serial.println(" falha abrir Arquivo");
+          }
+          if (file.print(json)) // Se a escrita do arquivo com seu conteúdo der certo, ...
+          {
+            // informa ao usuário que deu certo
+            Serial.println(" <<< Registro Adicionado >>>");
+          } else {
+            // informa ao usuário que deu erros e sai da função retornando false.
+            Serial.println("<<<< falha na ESCRITA do arquivo >>>>");
+            }  
+      Serial.println("-------REGISTRO INSERIDO COM SUCESSO----------------");
+      file.close();
+  
   sprintf(json, "{\"%s\":{\"value\":%02.02f}}", VARIABLE_LABEL_SPO2, espo2);
   Serial.printf("%s\n", json);
   if (!client.publish(TOPIC, json))
@@ -342,6 +428,36 @@ void mqtt_task(void *pvt)
     }
   }
 }
+
+void createFile(void){
+  File wFile;
+
+  //Cria o arquivo se ele não existir
+  if(SPIFFS.exists("/log.txt")){
+    Serial.println("Arquivo ja existe!");
+  } else {
+    Serial.println("Criando o arquivo...");
+    wFile = SPIFFS.open("/log.txt","w+");
+
+    //Verifica a criação do arquivo
+    if(!wFile){
+      Serial.println("Erro ao criar arquivo!");
+    } else {
+      Serial.println("Arquivo criado com sucesso!");
+    }
+  }
+  wFile.close();
+}
+
+void deleteFile(void) {
+  //Remove o arquivo
+  if(SPIFFS.remove("/log.txt")){
+    Serial.println("Erro ao remover arquivo!");
+  } else {
+    Serial.println("Arquivo removido com sucesso!");
+  }
+}
+ 
 
 void geraAP()
 {
