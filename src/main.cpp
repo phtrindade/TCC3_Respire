@@ -1,3 +1,4 @@
+
 #include "arduino.h"
 #include <Wire.h>
 #include <WiFi.h>
@@ -9,6 +10,8 @@
 #include "heartRate.h"
 #include "SPIFFS.h"
 #include "FS.h"
+//#include "kalman.c"
+
 //------------------------------------Definições de rede-----------------------------
 #define WIFISSID                 "trator"                                    // Coloque seu SSID de WiFi aqui
 #define PASSWORD                 "Pauloh01"                                  // Coloque seu password de WiFi aqui
@@ -57,13 +60,14 @@ struct
 #define FINGER_ON    30000       // if red signal is lower than this , it indicates your finger is not on the sensor
 #define MINIMUM_SPO2 10.0
 
+const char* ssid = "ESP32-AP"; //Define o nome do ponto de acesso
+const char* pass = "12345678"; //Define a senha
 const byte RATE_SIZE  = 4;     // Increase this for more averaging. 4 is good.
 byte rates[RATE_SIZE];        // Array of heart rates
 byte rateSpot         = 0;
 long lastBeat         = 0;            // Time at which the last beat occurred
 float beatsPerMinute;
 float beatAvg;
-//String batimentos.txt;
 /* ------------------------------- RTC 1302 -------------------------------------------
 CLK/SCLK --> D5 - IO05
 DAT/IO   --> D4 - IO12
@@ -75,6 +79,7 @@ GND      --> GND*/
 void reconnect();
 bool mqttInit();
 bool sendValues(float bpm, float espo2);
+void geraAP();
 void mqtt_task(void *pvt);
 void printDateTime(const RtcDateTime& dt);
 bool listDir() {
@@ -114,15 +119,25 @@ bool listDir() {
   return true; // retorna true se não houver nenhum erro
 }
 void readFile(void);
-//---------------------------------SETUP------------------------------------------------
+//-----------------------------------------SETUP------------------------------------------------
 void setup()
 {
   Serial.begin(9600);
-  //--------------------------------- LittleFS ------------------------------------------------------------
+  //---------------------------------   ACCESS POINT  ------------------------------------------------------------
+  WiFi.softAP(ssid, pass); //Inicia o ponto de acesso
+  Serial.print("Se conectando a: "); //Imprime mensagem sobre o nome do ponto de acesso
+  Serial.println(ssid);
+  IPAddress ip = WiFi.softAPIP(); //Endereço de IP
+  
+  Serial.print("Endereço de IP: "); //Imprime o endereço de IP
+  Serial.println(ip);
+  sv.begin(); //Inicia o servidor 
+  Serial.println("Servidor online"); 
+  //-------------------------------------- LittleFS ------------------------------------------------------------
   SPIFFS.begin();
   Serial.println();
     
-  //--------------------------------- RTC 1302 ------------------------------------------------------------
+  //-------------------------------------- RTC 1302 ------------------------------------------------------------
     Serial.print(" compiled: ");
     Serial.println(__DATE__);
     Serial.println(__TIME__);
@@ -347,10 +362,12 @@ void reconnect()
 }
 
 bool sendValues(float bpm, float espo2, int dia,int mes,int ano,int hora, int minuto,int segundo){ //, float mes
-  char json[250];
+  char json[50];
+  char a[50];
+
  // Atribui para a cadeia de caracteres "json" os valores referentes a temperatura e os envia para a variável do ubidots correspondente
-  sprintf(json, "%02.02f; %02.02f ; %02d/%02d/%02d ; %02d:%02d:%02d\n", bpm, espo2,dia,mes,ano,hora,minuto,segundo);
-  Serial.printf("%s\n", json);
+  /*sprintf(json, "%02.02f; %02.02f ; %02d/%02d/%02d ; %02d:%02d:%02d\n", bpm, espo2,dia,mes,ano,hora,minuto,segundo);
+  Serial.printf("%s\n", json);*/
     
       if(SPIFFS.exists(ARQUIVO)){
         Serial.println("Arquivo ja existe!");
@@ -375,7 +392,7 @@ bool sendValues(float bpm, float espo2, int dia,int mes,int ano,int hora, int mi
       Serial.println("-------ARQUIVO CRIADO COM SUCESSO----------------");
       file.close(); 
         }
-      Serial.println(" Inserindo novo registro : ");
+      Serial.println("----------Inserindo novo registro----------");
           
           File file = SPIFFS.open(ARQUIVO, "a"); // Abre o arquivo, no modo escrita,
 
@@ -392,12 +409,12 @@ bool sendValues(float bpm, float espo2, int dia,int mes,int ano,int hora, int mi
             // informa ao usuário que deu erros e sai da função retornando false.
             Serial.println("<<<< falha na ESCRITA do arquivo >>>>");
             }  
-      Serial.println("-------REGISTRO INSERIDO COM SUCESSO----------------");
+      //Serial.println("-------REGISTRO INSERIDO COM SUCESSO----------------");
       file.close();
   
   sprintf(json, "{\"%s\":{\"value\":%02.02f}}", VARIABLE_LABEL_SPO2, espo2);
   Serial.printf("%s\n", json);
-  if (!client.publish(TOPIC, json))
+    if (!client.publish(TOPIC, json))
     return false;
 
   // Atribui para a cadeia de caracteres "json" os valores referentes a umidade e os envia para a variável do ubidots correspondente
@@ -408,7 +425,7 @@ bool sendValues(float bpm, float espo2, int dia,int mes,int ano,int hora, int mi
 
   // Se tudo der certo retorna true
   return true;
-  // Serial.println("* PUBLICADO ** ");
+Serial.println("----------------------------------------------------------------");
 }
 
 void mqtt_task(void *pvt)
@@ -477,7 +494,7 @@ void geraAP()
             client.println("HTTP/1.1 200 OK"); // Envio padrão de início de comunicação
             client.println("Content-type:text/html");
             client.println();
-            client.print("<hr />");
+            client.print("<p>&nbsp;Nome:&nbsp;&nbsp;<input type=text />&nbsp; Idade:&nbsp;<input size=5 type=text />&nbsp; Sexo:&nbsp;<input size=10 type=text /></p>");
             client.print("<h1 style=text-align:center><strong>RESPIRE</strong></h1>");
             client.print("<hr />");
             client.print("<p>&nbsp;</p>");
