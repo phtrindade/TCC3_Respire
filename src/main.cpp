@@ -1,4 +1,3 @@
-
 #include "arduino.h"
 #include <Wire.h>
 #include <WiFi.h>
@@ -10,8 +9,6 @@
 #include "heartRate.h"
 #include "SPIFFS.h"
 #include "FS.h"
-//#include "kalman.c"
-
 //------------------------------------Definições de rede-----------------------------
 #define WIFISSID                 "trator"                                    // Coloque seu SSID de WiFi aqui
 #define PASSWORD                 "Pauloh01"                                  // Coloque seu password de WiFi aqui
@@ -60,14 +57,16 @@ struct
 #define FINGER_ON    30000       // if red signal is lower than this , it indicates your finger is not on the sensor
 #define MINIMUM_SPO2 10.0
 
-const char* ssid = "ESP32-AP"; //Define o nome do ponto de acesso
+const char* ssid = "ESP32-AP"; //Define o nome do ponto de acesso Access Point
 const char* pass = "12345678"; //Define a senha
+
 const byte RATE_SIZE  = 4;     // Increase this for more averaging. 4 is good.
 byte rates[RATE_SIZE];        // Array of heart rates
 byte rateSpot         = 0;
 long lastBeat         = 0;            // Time at which the last beat occurred
 float beatsPerMinute;
 float beatAvg;
+//String batimentos.txt;
 /* ------------------------------- RTC 1302 -------------------------------------------
 CLK/SCLK --> D5 - IO05
 DAT/IO   --> D4 - IO12
@@ -79,9 +78,9 @@ GND      --> GND*/
 void reconnect();
 bool mqttInit();
 bool sendValues(float bpm, float espo2);
-void geraAP();
 void mqtt_task(void *pvt);
 void printDateTime(const RtcDateTime& dt);
+void geraAP(int bmp,float spo2);
 bool listDir() {
   File root = SPIFFS.open("/"); // Abre o "diretório" onde estão os arquivos na SPIFFS
   //                                e passa o retorno para
@@ -119,25 +118,27 @@ bool listDir() {
   return true; // retorna true se não houver nenhum erro
 }
 void readFile(void);
-//-----------------------------------------SETUP------------------------------------------------
+//---------------------------------SETUP------------------------------------------------
 void setup()
 {
   Serial.begin(9600);
-  //---------------------------------   ACCESS POINT  ------------------------------------------------------------
-  WiFi.softAP(ssid, pass); //Inicia o ponto de acesso
-  Serial.print("Se conectando a: "); //Imprime mensagem sobre o nome do ponto de acesso
-  Serial.println(ssid);
-  IPAddress ip = WiFi.softAPIP(); //Endereço de IP
-  
-  Serial.print("Endereço de IP: "); //Imprime o endereço de IP
-  Serial.println(ip);
-  sv.begin(); //Inicia o servidor 
-  Serial.println("Servidor online"); 
-  //-------------------------------------- LittleFS ------------------------------------------------------------
+
+   //---------------------------------------- Configurando AP------------------------------------------------
+  Serial.println("\n"); //Pula uma linha                                                                  |
+  WiFi.softAP(ssid, pass); //Inicia o ponto de acesso                                                     |
+  Serial.print("Se conectando a: "); //Imprime mensagem sobre o nome do ponto de acesso                   |
+  Serial.println(ssid); //                                                                                |
+  IPAddress ip = WiFi.softAPIP(); //Endereço de IP                                                        |
+  Serial.print("Endereço de IP: "); //Imprime o endereço de IP                                            |
+  Serial.println(ip);               //                                                                    |
+  sv.begin(); //Inicia o servidor                                                                         |
+  Serial.println("Servidor online"); //Imprime a mensagem de início                                       |
+  //-------------------------------------------------------------------------------------------------------
+  //--------------------------------- LittleFS ------------------------------------------------------------
   SPIFFS.begin();
   Serial.println();
     
-  //-------------------------------------- RTC 1302 ------------------------------------------------------------
+  //--------------------------------- RTC 1302 ------------------------------------------------------------
     Serial.print(" compiled: ");
     Serial.println(__DATE__);
     Serial.println(__TIME__);
@@ -182,9 +183,6 @@ void setup()
   //-------------------------------------------------------------------------------------------------------
   Serial.println("Initializing...");
 
-  //---------------------------------------- Configurando AP------------------------------------------------
-
-  //--------------------------------------------------------------------------------------------------------
 
   fila = xQueueCreate(10, sizeof(mqtt_dados_t));
 
@@ -228,6 +226,8 @@ float frate        = 0.95; // low pass filter for IR/red LED value to eliminate 
 
 void loop()
 {
+ 
+  
   RtcDateTime now = Rtc.GetDateTime();
     
   long irValue = particleSensor.getIR();
@@ -254,9 +254,11 @@ void loop()
   }
 
   if (irValue < 50000)
-
+  {
+    SpO2 = 0;
+    beatAvg = 0;
     Serial.println("*** Sem dedo *** ");
-
+  }
   while (particleSensor.available())
   {                                   // do we have new data
     red = particleSensor.getFIFOIR(); // why getFOFOIR output Red data by MAX30102 on MH-ET LIVE breakout board
@@ -280,8 +282,7 @@ void loop()
       break;
     }
     particleSensor.nextSample(); // We're finished with this sample so move to next sample
-  
-  
+    
   }
   
   mqtt_dados_t dados;
@@ -295,6 +296,7 @@ void loop()
   dados.espo2    = SpO2;
   tempo_envio    += 50;
   
+ 
   if (tempo_envio == 5000)
   {
     tempo_envio = 0;
@@ -362,12 +364,10 @@ void reconnect()
 }
 
 bool sendValues(float bpm, float espo2, int dia,int mes,int ano,int hora, int minuto,int segundo){ //, float mes
-  char json[50];
-  char a[50];
-
+  char json[250];
  // Atribui para a cadeia de caracteres "json" os valores referentes a temperatura e os envia para a variável do ubidots correspondente
-  /*sprintf(json, "%02.02f; %02.02f ; %02d/%02d/%02d ; %02d:%02d:%02d\n", bpm, espo2,dia,mes,ano,hora,minuto,segundo);
-  Serial.printf("%s\n", json);*/
+  sprintf(json, "%02.02f; %02.02f ; %02d/%02d/%02d ; %02d:%02d:%02d\n", bpm, espo2,dia,mes,ano,hora,minuto,segundo);
+  
     
       if(SPIFFS.exists(ARQUIVO)){
         Serial.println("Arquivo ja existe!");
@@ -392,7 +392,7 @@ bool sendValues(float bpm, float espo2, int dia,int mes,int ano,int hora, int mi
       Serial.println("-------ARQUIVO CRIADO COM SUCESSO----------------");
       file.close(); 
         }
-      Serial.println("----------Inserindo novo registro----------");
+      Serial.println(" Inserindo novo registro : ");
           
           File file = SPIFFS.open(ARQUIVO, "a"); // Abre o arquivo, no modo escrita,
 
@@ -409,12 +409,13 @@ bool sendValues(float bpm, float espo2, int dia,int mes,int ano,int hora, int mi
             // informa ao usuário que deu erros e sai da função retornando false.
             Serial.println("<<<< falha na ESCRITA do arquivo >>>>");
             }  
-      //Serial.println("-------REGISTRO INSERIDO COM SUCESSO----------------");
+      Serial.printf("%s\n", json);
+      Serial.println("-------REGISTRO INSERIDO COM SUCESSO----------------");
       file.close();
   
   sprintf(json, "{\"%s\":{\"value\":%02.02f}}", VARIABLE_LABEL_SPO2, espo2);
   Serial.printf("%s\n", json);
-    if (!client.publish(TOPIC, json))
+  if (!client.publish(TOPIC, json))
     return false;
 
   // Atribui para a cadeia de caracteres "json" os valores referentes a umidade e os envia para a variável do ubidots correspondente
@@ -422,10 +423,10 @@ bool sendValues(float bpm, float espo2, int dia,int mes,int ano,int hora, int mi
   Serial.printf("%s\n", json);
   if (!client.publish(TOPIC, json))
     return false;
-
+  
   // Se tudo der certo retorna true
   return true;
-Serial.println("----------------------------------------------------------------");
+  // Serial.println("* PUBLICADO ** ");
 }
 
 void mqtt_task(void *pvt)
@@ -437,6 +438,7 @@ void mqtt_task(void *pvt)
   while (1)
   {
     reconnect();
+    geraAP(dados.bpm,dados.espo2);
     while (xQueueReceive(fila, &dados, 100 * portTICK_PERIOD_MS))
     {
       sendValues( dados.bpm, dados.espo2,
@@ -476,7 +478,7 @@ void deleteFile(void) {
 }
  
 
-void geraAP()
+void geraAP(int bmp,float spo2)
 {
   WiFiClient client = sv.available(); // Cria o objeto cliente
   if (client)
@@ -486,35 +488,35 @@ void geraAP()
     { // Enquanto estiver conectado
       if (client.available())
       {                         // Se estiver disponível
-        char c = client.read(); // Lê os caracteres recebidos
-        if (c == '\n')
-        { // Se houver uma quebra de linha
+        //char c = client.read(); // Lê os caracteres recebidos
+        //if (c == '\n')
+        //{ // Se houver uma quebra de linha
           if (line.length() == 0)
           {                                    // Se a nova linha tiver 0 de tamanho
             client.println("HTTP/1.1 200 OK"); // Envio padrão de início de comunicação
             client.println("Content-type:text/html");
             client.println();
-            client.print("<p>&nbsp;Nome:&nbsp;&nbsp;<input type=text />&nbsp; Idade:&nbsp;<input size=5 type=text />&nbsp; Sexo:&nbsp;<input size=10 type=text /></p>");
-            client.print("<h1 style=text-align:center><strong>RESPIRE</strong></h1>");
+           // client.print("<p>&nbsp;Nome:&nbsp;&nbsp;<input type=text />&nbsp; Idade:&nbsp;<input size=5 type=text />&nbsp; Sexo:&nbsp;<input size=10 type=text /></p>");
+            client.print("<h1 style=text-align:center><span style=font-size:90px><strong>RESPIRE</strong></h1>");
             client.print("<hr />");
+            
             client.print("<p>&nbsp;</p>");
             client.print("<p>&nbsp;</p>");
             client.print("<p>&nbsp;</p>");
             client.print("<p>&nbsp;</p>");
+           // client.print("<p>&nbsp;</p>");
+           // client.print("<p>&nbsp;</p>");
+            client.print("<p>&nbsp;</p>");
+            client.print("<h1 style=text-align:center><span style=font-size:58px><span style=color:#0000FF><strong>Satura&ccedil;&atilde;o de Oxig&ecirc;nio (%)</strong></span></span></h1>");
+            client.print("<h1 style=text-align:center><span style=font-size:58px><span style=color:#0000FF>"+String(spo2));//client.print(spo2);
+            client.print("<p>&nbsp;</p>");
+            //client.print("<p>&nbsp;</p>");
             client.print("<p>&nbsp;</p>");
             client.print("<p>&nbsp;</p>");
             client.print("<p>&nbsp;</p>");
             client.print("<p>&nbsp;</p>");
-            client.print("<h1 style=text-align:center><span style=font-size:28px><span style=color:#0000FF><strong>Satura&ccedil;&atilde;o de Oxig&ecirc;nio</strong></span></span></h1>");
-            client.print("<p style=text-align:center><strong>X</strong></p>");
-            client.print("<p>&nbsp;</p>");
-            client.print("<p>&nbsp;</p>");
-            client.print("<p>&nbsp;</p>");
-            client.print("<p>&nbsp;</p>");
-            client.print("<p>&nbsp;</p>");
-            client.print("<p>&nbsp;</p>");
-            client.print("<h1 style=text-align:center><span style=font-size:28px><span style=color:#FF0000><strong>Batimentos Card&iacute;acos</strong></span></span></h1>");
-            client.print("<p style=text-align:center><strong>Y</strong></p>");
+            client.print("<h1 style=text-align:center><span style=font-size:58px><span style=color:#FF0000><strong>Batimentos Card&iacute;acos</strong></span></span></h1>");
+            client.print("<h1 style=text-align:center><span style=font-size:58px><span style=color:#FF0001>"+String(bmp));//client.print(bmp);
             client.print("<p>&nbsp;</p>");
             client.print("<p>&nbsp;</p>");
             client.print("<p>&nbsp;</p>");
@@ -529,22 +531,10 @@ void geraAP()
           {
             line = "";
           }
-        }
-        else if (c != '\r')
-        {
-          line += c; // Adiciona o caractere recebido à linha de leitura
-        }
-        if (line.endsWith("GET /ligar"))
-        { // Se a linha terminar com "/ligar", liga o led
-          digitalWrite(23, HIGH);
-        }
-        if (line.endsWith("GET /desligar"))
-        { // Se a linha terminar com "/desligar", desliga o led
-          digitalWrite(23, LOW);
-        }
+        //}
       }
-    }
     client.stop(); // Para o cliente
+    }
   }
 }
 
